@@ -2,17 +2,18 @@ from functools import lru_cache
 
 import toml
 
+from .sam import SAM2, SAM2Serve
 from .storage import FileUploader
 
-__florence_serve = None
+__sam2_serve = None
 __file_uploader = None
 
 
-def florence(model) -> Florence:
-    global __florence_serve
-    if __florence_serve is None:
-        __florence_serve = FlorenceServe()
-    return __florence_serve.get_or_load_model(model)
+def florence(model) -> SAM2:
+    global __sam2_serve
+    if __sam2_serve is None:
+        __sam2_serve = SAM2Serve()
+    return __sam2_serve.get_or_load_model(model)
 
 
 def file_uploader() -> FileUploader:
