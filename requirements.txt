@@ -1,0 +1,6 @@
+numpy<2.0.0
+fastapi
+pydantic
+uvicorn
+toml
+git+https://github.com/facebookresearch/segment-anything-2.git
