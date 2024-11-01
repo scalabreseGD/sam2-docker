@@ -1,11 +1,12 @@
 import os
+import sys
 from typing import List
 
 import uvicorn
 from fastapi import FastAPI, UploadFile, File
 from starlette.responses import Response
 
-from api import florence, file_uploader
+from api import sam2, file_uploader
 from middleware import LimitRequestSizeMiddleware, lifespan
 from models import PredictArgs, PredictResponse
 
@@ -13,21 +14,19 @@ app = FastAPI(lifespan=lifespan)
 app.add_middleware(LimitRequestSizeMiddleware)
 
 
-def __return_response(request: PredictArgs) -> List[PredictResponse]:
+def __return_response(request: PredictArgs) -> PredictResponse:
     if request.video is not None and request.images is not None:
         Response(
             "Cannot use both images and video in the same request", status_code=400
         )
-    model = florence(request.model)
-    responses = model.call_model(task=request.task,
-                                 text=request.text,
-                                 images=request.images,
+    model = sam2(request.model)
+    responses = model.call_model(images=request.images,
                                  video=request.video,
-                                 batch_size=request.batch_size,
+                                 boxOrPoint=request.boxOrPoint,
                                  scale_factor=request.scale_factor,
                                  start_second=request.start_second,
                                  end_second=request.end_second)
-    return [PredictResponse(task=request.task, response=resp[request.task]) for resp in responses]
+    return PredictResponse(response=responses)
 
 
 @app.post("/v1/predict", response_model=List[PredictResponse])

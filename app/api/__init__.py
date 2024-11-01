@@ -9,7 +9,7 @@ __sam2_serve = None
 __file_uploader = None
 
 
-def florence(model) -> SAM2:
+def sam2(model) -> SAM2:
     global __sam2_serve
     if __sam2_serve is None:
         __sam2_serve = SAM2Serve()
