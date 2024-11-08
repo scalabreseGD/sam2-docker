@@ -4,6 +4,7 @@ from typing import List
 
 import uvicorn
 from fastapi import FastAPI, UploadFile, File
+from fastapi.responses import ORJSONResponse
 from starlette.responses import Response
 
 from api import sam2, file_uploader
@@ -29,7 +30,7 @@ def __return_response(request: PredictArgs) -> PredictResponse:
     return PredictResponse(response=responses)
 
 
-@app.post("/v1/predict", response_model=List[PredictResponse])
+@app.post("/v1/predict", response_model=PredictResponse, response_class=ORJSONResponse)
 async def predict(request: PredictArgs):
     return __return_response(request)
 
@@ -41,4 +42,4 @@ async def asset(files: List[UploadFile] = File(...)):
 
 if __name__ == "__main__":
     port = os.environ.get('PORT', '8000')
-    uvicorn.run(app, host="0.0.0.0", port=int(port), log_level="info")
+    uvicorn.run(app, host="0.0.0.0", port=int(port), log_config='conf/log.ini')

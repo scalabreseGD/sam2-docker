@@ -10,7 +10,7 @@ from api.utils import load_video_from_path, is_base64_string, base64_to_image_wi
 from api.patches import DEVICE
 from tqdm import tqdm
 
-from models import BoxOrPoint
+from models import BoxOrPoint, MaskResponse
 
 
 class SAM2:
@@ -60,7 +60,9 @@ class SAM2:
         with torch.inference_mode(), torch.autocast(self.device.type):
             for frame_idx in tqdm(range(len(images)), desc="Predicting photos"):
                 self.sam2_model.set_image(images[frame_idx])
-                points_per_frame = [bpl for bpl in boxesOrPoints if bpl.frame == frame_idx]
+                points_per_frame = sorted([bpl for bpl in boxesOrPoints if bpl.frame == frame_idx],
+                                          key=lambda item: item.object_id)
+                object_ids = [bpl.object_id for bpl in points_per_frame]
                 # masks, scores, logits
                 np_boxes = np.array(
                     [bpl.bbox for bpl in points_per_frame]) if all_elements_are_not_null(points_per_frame,
@@ -68,15 +70,25 @@ class SAM2:
                 np_point = np.array(
                     [bpl.point for bpl in points_per_frame]) if all_elements_are_not_null(points_per_frame,
                                                                                           lambda x: x.point) else None
-                mask_logits, _, _ = self.sam2_model.predict(box=np_boxes if np_boxes is not None else None,
-                                                            point_labels=np.array([bpl.label for bpl in
-                                                                                   points_per_frame]) if np_point is None else None,
-                                                            point_coords=np_point if np_point is not None else None,
-                                                            return_logits=False,
-                                                            multimask_output=False)
+                mask_logits, scores, logits = self.sam2_model.predict(box=np_boxes if np_boxes is not None else None,
+                                                                      point_labels=np.array([bpl.label for bpl in
+                                                                                             points_per_frame]) if np_point is None else None,
+                                                                      point_coords=np_point if np_point is not None else None,
+                                                                      return_logits=False,
+                                                                      multimask_output=False)
                 masks = (mask_logits > 0.0).astype(bool)
-                masks = np.squeeze(masks, axis=0)
-                mask_response[frame_idx] = masks.tolist()
+                masks = masks.squeeze(axis=1)
+                mask_response[frame_idx] = []
+                for object_id in object_ids:
+                    mask_per_object = masks[object_id, :, :]
+                    true_values = [(i, j) for i in range(mask_per_object.shape[0]) for j in
+                                   range(mask_per_object.shape[1]) if mask_per_object[i, j]]
+                    mask_response[frame_idx].append(
+                        MaskResponse(
+                            image_shape=mask_per_object.shape[::-1],
+                            true_values=true_values,
+                            object_id=object_id
+                        ))
         return mask_response
 
 

@@ -2,4 +2,4 @@
 max_upload_size=104857600
 
 [file_uploader]
-base_path='florence/data'
+base_path='sam2/data'

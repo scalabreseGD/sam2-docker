@@ -12,7 +12,8 @@ class BoxOrPoint(BaseModel):
                                                               description="The bounding box in x1,y1,x2,y2 format")
     point: Optional[Tuple[float, float]] = Field((0.0, 0.0),
                                                  description="The anchor point in x,y format")
-    label: Literal[0, 1] = Field(..., description="label indicating if the point is to be excluded or included in 0/1 format")
+    label: Literal[0, 1] = Field(...,
+                                 description="label indicating if the point is to be excluded or included in 0/1 format")
 
 
 class PredictArgs(BaseModel):
@@ -29,5 +30,11 @@ class PredictArgs(BaseModel):
     end_second: Optional[int] = Field(None, description="The end frame for the prediction")
 
 
+class MaskResponse(BaseModel):
+    image_shape: Tuple[int, int] = Field(..., description="The shape of the image")
+    true_values: List[Tuple[int, int]] = Field(..., description="The coordinates in the matrix with value True")
+    object_id: int = Field(..., description="object id to be annotated")
+
+
 class PredictResponse(BaseModel):
-    response: dict[int, List] = Field(..., description="The output masks from Sam2")
+    response: dict[int, List[MaskResponse]] = Field(..., description="The output masks from Sam2")
