@@ -1,4 +1,5 @@
 import os
+from itertools import groupby
 from typing import Union, List
 
 import numpy as np
@@ -6,7 +7,8 @@ import torch
 from sam2.sam2_image_predictor import SAM2ImagePredictor
 from sam2.sam2_video_predictor import SAM2VideoPredictor
 
-from api.utils import load_video_from_path, is_base64_string, base64_to_image_with_size, load_image_from_path
+from api.utils import load_video_from_path, is_base64_string, base64_to_image_with_size, load_image_from_path, \
+    offload_video_as_images
 from api.patches import DEVICE
 from tqdm import tqdm
 
@@ -32,7 +34,8 @@ class SAM2:
             if self.inference_state is not None:
                 self.sam2_model.reset_state(self.inference_state)
 
-            self.inference_state = self.sam2_model.init_state(video_path=images_path, offload_video_to_cpu=True,
+            self.inference_state = self.sam2_model.init_state(video_path=images_path,
+                                                              offload_video_to_cpu=True,
                                                               offload_state_to_cpu=True
                                                               )
         else:
@@ -42,7 +45,9 @@ class SAM2:
     def call_model(self, images, video, boxOrPoint, scale_factor,
                    start_second, end_second):
         if video is not None:
-            images_pillow_with_size = load_video_from_path(video, scale_factor, start_second, end_second)
+            images_path = offload_video_as_images(video, scale_factor, start_second, end_second)
+            self.__init_model(images_path=images_path)
+            self.__predict_video(boxOrPoint)
         elif images is not None and is_base64_string(images[0]):
             images_pillow = [base64_to_image_with_size(image)[0] for image in images]
             self.__init_model(img for img in images_pillow)
@@ -53,9 +58,6 @@ class SAM2:
             return self.__predict_photos(images_pillow, boxOrPoint)
 
     def __predict_photos(self, images, boxesOrPoints: List[BoxOrPoint]):
-        def all_elements_are_not_null(arr, func):
-            return all([func(a) is not None for a in arr])
-
         mask_response = {}
         with torch.inference_mode(), torch.autocast(self.device.type):
             for frame_idx in tqdm(range(len(images)), desc="Predicting photos"):
@@ -65,11 +67,13 @@ class SAM2:
                 object_ids = [bpl.object_id for bpl in points_per_frame]
                 # masks, scores, logits
                 np_boxes = np.array(
-                    [bpl.bbox for bpl in points_per_frame]) if all_elements_are_not_null(points_per_frame,
-                                                                                         lambda x: x.bbox) else None
+                    [bpl.bbox for bpl in points_per_frame]) if self.__all_elements_are_not_null(points_per_frame,
+                                                                                                lambda
+                                                                                                    x: x.bbox) else None
                 np_point = np.array(
-                    [bpl.point for bpl in points_per_frame]) if all_elements_are_not_null(points_per_frame,
-                                                                                          lambda x: x.point) else None
+                    [bpl.point for bpl in points_per_frame]) if self.__all_elements_are_not_null(points_per_frame,
+                                                                                                 lambda
+                                                                                                     x: x.point) else None
                 mask_logits, scores, logits = self.sam2_model.predict(box=np_boxes if np_boxes is not None else None,
                                                                       point_labels=np.array([bpl.label for bpl in
                                                                                              points_per_frame]) if np_point is None else None,
@@ -80,16 +84,74 @@ class SAM2:
                 masks = masks.squeeze(axis=1)
                 mask_response[frame_idx] = []
                 for object_id in object_ids:
-                    mask_per_object = masks[object_id, :, :]
-                    true_values = [(i, j) for i in range(mask_per_object.shape[0]) for j in
-                                   range(mask_per_object.shape[1]) if mask_per_object[i, j]]
-                    mask_response[frame_idx].append(
-                        MaskResponse(
-                            image_shape=mask_per_object.shape[::-1],
-                            true_values=true_values,
-                            object_id=object_id
-                        ))
+                    mask_response[frame_idx].append(self.parse_to_model(object_id, masks))
         return mask_response
+
+    def __predict_video(self, boxOrPoint: List[BoxOrPoint]):
+        mask_response = {}
+
+        items_sorted = sorted(boxOrPoint, key=lambda x: x.frame)
+        grouped_items = {
+            frame: {
+                object_id: list(bboxes)[0]  # we except only one box for each object in the frame
+                for object_id, bboxes in groupby(boxes, key=lambda box: box.object_id)
+            }
+            for frame, boxes in groupby(items_sorted, key=lambda x: x.frame)
+        }
+
+        for frame_idx, boxes_by_obj_id in grouped_items.items():
+            for object_id, boxes in boxes_by_obj_id.items():
+                self.__add_points_or_boxes(frame_idx, object_id, boxes)
+        response = self.sam2_model.propagate_in_video(
+            inference_state=self.inference_state,
+        )
+        for frame_idx, object_ids, mask_logits in response:
+            masks = torch.squeeze(mask_logits, dim=1)
+            mask_response[frame_idx] = []
+            for idx in range(len(object_ids)):
+                (mask_logits > 0.0).astype(bool)
+                mask_numpy = masks[idx].cpu().numpy()
+                mask_numpy = (mask_numpy > 0.0).astype(bool)
+
+                mask_response[frame_idx].append(self.parse_to_model(object_ids[idx], mask_numpy))
+        return mask_response
+
+    def parse_to_model(self, object_id, masks):
+        if len(masks.shape) >= 3:
+            mask_per_object = masks[object_id, :, :]
+        else:
+            mask_per_object = masks
+        true_values = [(i, j) for i in range(mask_per_object.shape[0]) for j in
+                       range(mask_per_object.shape[1]) if mask_per_object[i, j]]
+        return MaskResponse(
+            image_shape=mask_per_object.shape[::-1],
+            true_values=true_values,
+            object_id=object_id
+        )
+
+    def __add_points_or_boxes(self, frame_idx, object_id, boxes):
+        if boxes.bbox is not None:
+            np_box = np.array(boxes.bbox)
+            _, obj_id_res, video_res_masks = self.sam2_model.add_new_points_or_box(
+                inference_state=self.inference_state,
+                frame_idx=frame_idx,
+                obj_id=object_id,
+                box=np_box
+            )
+        else:
+            np_point = np.array(boxes.point)
+            np_label = np.array(boxes.label)
+            _, obj_id_res, video_res_masks = self.sam2_model.add_new_points_or_box(
+                inference_state=self.inference_state,
+                frame_idx=frame_idx,
+                obj_id=object_id,
+                points=np_point,
+                labels=np_label
+            )
+
+    @staticmethod
+    def __all_elements_are_not_null(arr, func):
+        return all([func(a) is not None for a in arr])
 
 
 class SAM2Serve:
