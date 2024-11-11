@@ -110,7 +110,6 @@ class SAM2:
             masks = torch.squeeze(mask_logits, dim=1)
             mask_response[frame_idx] = []
             for idx in range(len(object_ids)):
-                (mask_logits > 0.0).astype(bool)
                 mask_numpy = masks[idx].cpu().numpy()
                 mask_numpy = (mask_numpy > 0.0).astype(bool)
 
