@@ -99,7 +99,7 @@ class SAM2:
             }
             for frame, boxes in groupby(items_sorted, key=lambda x: x.frame)
         }
-        with torch.inference_mode(), torch.autocast(device_type=self.device.type, dtype=torch.bfloat16)
+        with torch.inference_mode(), torch.autocast(device_type=self.device.type, dtype=torch.bfloat16):
             for frame_idx, boxes_by_obj_id in grouped_items.items():
                 for object_id, boxes in boxes_by_obj_id.items():
                     self.__add_points_or_boxes(frame_idx, object_id, boxes)
