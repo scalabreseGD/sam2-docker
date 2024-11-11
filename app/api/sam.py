@@ -48,7 +48,7 @@ class SAM2:
         if video is not None:
             images_path = offload_video_as_images(video, scale_factor, start_second, end_second)
             self.__init_model(images_path=images_path)
-            self.__predict_video(boxOrPoint)
+            return self.__predict_video(boxOrPoint)
         elif images is not None and is_base64_string(images[0]):
             images_pillow = [base64_to_image_with_size(image)[0] for image in images]
             self.__init_model(img for img in images_pillow)
@@ -60,7 +60,7 @@ class SAM2:
 
     def __predict_photos(self, images, boxesOrPoints: List[BoxOrPoint]):
         mask_response = {}
-        with torch.inference_mode(), torch.autocast(self.device.type):
+        with torch.inference_mode(), torch.autocast(device_type=self.device.type, dtype=torch.bfloat16):
             for frame_idx in tqdm(range(len(images)), desc="Predicting photos"):
                 self.sam2_model.set_image(images[frame_idx])
                 points_per_frame = sorted([bpl for bpl in boxesOrPoints if bpl.frame == frame_idx],
@@ -99,22 +99,22 @@ class SAM2:
             }
             for frame, boxes in groupby(items_sorted, key=lambda x: x.frame)
         }
+        with torch.inference_mode(), torch.autocast(device_type=self.device.type, dtype=torch.bfloat16)
+            for frame_idx, boxes_by_obj_id in grouped_items.items():
+                for object_id, boxes in boxes_by_obj_id.items():
+                    self.__add_points_or_boxes(frame_idx, object_id, boxes)
+            response = self.sam2_model.propagate_in_video(
+                inference_state=self.inference_state,
+            )
+            for frame_idx, object_ids, mask_logits in response:
+                masks = torch.squeeze(mask_logits, dim=1)
+                mask_response[frame_idx] = []
+                for idx in range(len(object_ids)):
+                    mask_numpy = masks[idx].cpu().numpy()
+                    mask_numpy = (mask_numpy > 0.0).astype(bool)
 
-        for frame_idx, boxes_by_obj_id in grouped_items.items():
-            for object_id, boxes in boxes_by_obj_id.items():
-                self.__add_points_or_boxes(frame_idx, object_id, boxes)
-        response = self.sam2_model.propagate_in_video(
-            inference_state=self.inference_state,
-        )
-        for frame_idx, object_ids, mask_logits in response:
-            masks = torch.squeeze(mask_logits, dim=1)
-            mask_response[frame_idx] = []
-            for idx in range(len(object_ids)):
-                mask_numpy = masks[idx].cpu().numpy()
-                mask_numpy = (mask_numpy > 0.0).astype(bool)
-
-                mask_response[frame_idx].append(self.parse_to_model(object_ids[idx], mask_numpy))
-        return mask_response
+                    mask_response[frame_idx].append(self.parse_to_model(object_ids[idx], mask_numpy))
+            return mask_response
 
     def parse_to_model(self, object_id, masks):
         if len(masks.shape) >= 3:
