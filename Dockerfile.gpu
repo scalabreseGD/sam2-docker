@@ -1,0 +1,31 @@
+# Base stage for common dependencies
+FROM nvcr.io/nvidia/pytorch:24.10-py3 AS base
+
+# Set the working directory in the container
+WORKDIR /app
+
+# Install ffmpeg and other dependencies
+RUN apt-get update && \
+    apt-get install -y ffmpeg && \
+    rm -rf /var/lib/apt/lists/*
+
+# Builder stage to install Python dependencies separately
+FROM base AS final
+
+# Copy only requirements.txt to leverage caching
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install -r requirements.txt
+
+# Copy the rest of the application code
+COPY ./app /app
+
+# Expose the port (dynamic via ENV)
+EXPOSE ${PORT:-8000}
+
+# Set environment variable for the port, fallback to 8000
+ENV PORT=8000
+
+# Run the Uvicorn app
+ENTRYPOINT ["python", "app.py"]

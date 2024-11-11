@@ -4,7 +4,7 @@ python-multipart
 pydantic
 uvicorn
 toml
-#git+https://github.com/facebookresearch/segment-anything-2.git
+git+https://github.com/facebookresearch/segment-anything-2.git
 huggingface-hub
 imageio[ffmpeg]
 orjson
