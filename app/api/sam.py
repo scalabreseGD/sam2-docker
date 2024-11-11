@@ -31,6 +31,10 @@ class SAM2:
         if not self.sam2_model and images_path:
             self.sam2_model = SAM2VideoPredictor.from_pretrained(self.model_name, device=self.device.type,
                                                                  token=self.hf_token)
+        elif not self.sam2_model and images:
+            self.sam2_model = SAM2ImagePredictor.from_pretrained(self.model_name, device=self.device.type,
+                                                                 token=self.hf_token)
+        if images_path:
             if self.inference_state is not None:
                 self.sam2_model.reset_state(self.inference_state)
 
@@ -38,9 +42,6 @@ class SAM2:
                                                               offload_video_to_cpu=True,
                                                               offload_state_to_cpu=True
                                                               )
-        else:
-            self.sam2_model = SAM2ImagePredictor.from_pretrained(self.model_name, device=self.device.type,
-                                                                 token=self.hf_token)
 
     def call_model(self, images, video, boxOrPoint, scale_factor,
                    start_second, end_second):

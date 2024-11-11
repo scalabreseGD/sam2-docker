@@ -8,7 +8,8 @@ WORKDIR /app
 RUN apt-get update && \
     apt-get install -y ffmpeg \
     python3.10 \
-    python3-pip && \
+    python3-pip \
+    git && \
     rm -rf /var/lib/apt/lists/*
 
 # Builder stage to install Python dependencies separately
