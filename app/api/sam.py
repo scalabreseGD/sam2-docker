@@ -1,4 +1,3 @@
-import os
 from itertools import groupby
 from typing import Union, List
 
@@ -6,13 +5,12 @@ import numpy as np
 import torch
 from sam2.sam2_image_predictor import SAM2ImagePredictor
 from sam2.sam2_video_predictor import SAM2VideoPredictor
-
-from api.utils import load_video_from_path, is_base64_string, base64_to_image_with_size, load_image_from_path, \
-    offload_video_as_images
-from api.patches import DEVICE
 from tqdm import tqdm
 
-from models import BoxOrPoint, MaskResponse
+from api.patches import DEVICE
+from api.utils import is_base64_string, base64_to_image_with_size, load_image_from_path, \
+    offload_video_as_images
+from models import BoxOrPoint, MaskResponse, PredictResponse
 
 
 class SAM2:
@@ -43,80 +41,118 @@ class SAM2:
                                                               offload_state_to_cpu=True
                                                               )
 
-    def call_model(self, images, video, boxOrPoint, scale_factor,
-                   start_second, end_second):
+    def call_model(self, images, video, box_or_point, scale_factor,
+                   start_second, end_second, stream=False):
         if video is not None:
             images_path = offload_video_as_images(video, scale_factor, start_second, end_second)
             self.__init_model(images_path=images_path)
-            return self.__predict_video(boxOrPoint)
+            result = self.__predict_video(box_or_point, stream)
         elif images is not None and is_base64_string(images[0]):
             images_pillow = [base64_to_image_with_size(image)[0] for image in images]
             self.__init_model(img for img in images_pillow)
-            return self.__predict_photos(images_pillow, boxOrPoint)
+            result = self.__predict_photos(images_pillow, box_or_point, stream)
         else:
             images_pillow = [load_image_from_path(image_path)[0] for image_path in images]
             self.__init_model(img for img in images_pillow)
-            return self.__predict_photos(images_pillow, boxOrPoint)
+            result = self.__predict_photos(images_pillow, box_or_point, stream)
+        return result
 
-    def __predict_photos(self, images, boxesOrPoints: List[BoxOrPoint]):
-        mask_response = {}
+    def __predict_photos(self, images, box_or_point: List[BoxOrPoint], stream=False):
+        grouped_items = self.__group_box_point_by_frame_obj_id(box_or_point, only_frame=True)
         with torch.inference_mode(), torch.autocast(device_type=self.device.type, dtype=torch.bfloat16):
-            for frame_idx in tqdm(range(len(images)), desc="Predicting photos"):
-                self.sam2_model.set_image(images[frame_idx])
-                points_per_frame = sorted([bpl for bpl in boxesOrPoints if bpl.frame == frame_idx],
-                                          key=lambda item: item.object_id)
-                object_ids = [bpl.object_id for bpl in points_per_frame]
-                # masks, scores, logits
-                np_boxes = np.array(
-                    [bpl.bbox for bpl in points_per_frame]) if self.__all_elements_are_not_null(points_per_frame,
-                                                                                                lambda
-                                                                                                    x: x.bbox) else None
-                np_point = np.array(
-                    [bpl.point for bpl in points_per_frame]) if self.__all_elements_are_not_null(points_per_frame,
-                                                                                                 lambda
-                                                                                                     x: x.point) else None
-                mask_logits, scores, logits = self.sam2_model.predict(box=np_boxes if np_boxes is not None else None,
-                                                                      point_labels=np.array([bpl.label for bpl in
-                                                                                             points_per_frame]) if np_point is None else None,
-                                                                      point_coords=np_point if np_point is not None else None,
-                                                                      return_logits=False,
-                                                                      multimask_output=False)
-                masks = (mask_logits > 0.0).astype(bool)
-                masks = masks.squeeze(axis=1)
-                mask_response[frame_idx] = []
-                for object_id in object_ids:
-                    mask_response[frame_idx].append(self.parse_to_model(object_id, masks))
-        return mask_response
+            if stream:
+                for frame_idx, boxes in tqdm(grouped_items.items(), desc="Predicting photos"):
+                    mask_responses = self.__predict_mask_responses(image=images[frame_idx],
+                                                                   box_or_point_by_frame=boxes)
+                    yield PredictResponse(response={frame_idx: mask_responses}).model_dump_json() + "\n"
+            else:
+                mask_response = {}
+                for frame_idx, boxes in tqdm(grouped_items.items(), desc="Predicting photos"):
+                    mask_responses = self.__predict_mask_responses(image=images[frame_idx],
+                                                                   box_or_point_by_frame=boxes)
+                    mask_response[frame_idx] = mask_responses
+                return PredictResponse(response=mask_response)
 
-    def __predict_video(self, boxOrPoint: List[BoxOrPoint]):
-        mask_response = {}
+    def __predict_mask_responses(self, image, box_or_point_by_frame):
+        self.sam2_model.set_image(image)
+        points_per_frame = sorted(box_or_point_by_frame,
+                                  key=lambda item: item.object_id)
+        object_ids = [bpl.object_id for bpl in points_per_frame]
+        np_boxes = np.array(
+            [bpl.bbox for bpl in points_per_frame]) if self.__all_elements_are_not_null(points_per_frame,
+                                                                                        lambda
+                                                                                            x: x.bbox) else None
+        np_point = np.array(
+            [bpl.point for bpl in points_per_frame]) if self.__all_elements_are_not_null(points_per_frame,
+                                                                                         lambda
+                                                                                             x: x.point) else None
+        mask_logits, scores, logits = self.sam2_model.predict(box=np_boxes if np_boxes is not None else None,
+                                                              point_labels=np.array([bpl.label for bpl in
+                                                                                     points_per_frame]) if np_point is None else None,
+                                                              point_coords=np_point if np_point is not None else None,
+                                                              return_logits=False,
+                                                              multimask_output=False)
+        masks = (mask_logits > 0.0).astype(bool)
+        masks = masks.squeeze(axis=1)
+        return [self.parse_to_model(object_id, masks) for object_id in object_ids]
 
-        items_sorted = sorted(boxOrPoint, key=lambda x: x.frame)
-        grouped_items = {
-            frame: {
-                object_id: list(bboxes)[0]  # we except only one box for each object in the frame
-                for object_id, bboxes in groupby(boxes, key=lambda box: box.object_id)
-            }
-            for frame, boxes in groupby(items_sorted, key=lambda x: x.frame)
-        }
+    def __predict_video(self, box_or_point: List[BoxOrPoint], stream=False):
+        grouped_items = self.__group_box_point_by_frame_obj_id(box_or_point)
         with torch.inference_mode(), torch.autocast(device_type=self.device.type, dtype=torch.bfloat16):
             for frame_idx, boxes_by_obj_id in grouped_items.items():
                 for object_id, boxes in boxes_by_obj_id.items():
                     self.__add_points_or_boxes(frame_idx, object_id, boxes)
-            response = self.sam2_model.propagate_in_video(
-                inference_state=self.inference_state,
-            )
-            for frame_idx, object_ids, mask_logits in response:
-                masks = torch.squeeze(mask_logits, dim=1)
-                mask_response[frame_idx] = []
-                for idx in range(len(object_ids)):
-                    mask_numpy = masks[idx].cpu().numpy()
-                    mask_numpy = (mask_numpy > 0.0).astype(bool)
 
-                    mask_response[frame_idx].append(self.parse_to_model(object_ids[idx], mask_numpy))
+            mask_response = {}
+            for frame_idx, object_ids, mask_logits in self.sam2_model.propagate_in_video(
+                    inference_state=self.inference_state):
+                masks = torch.squeeze(mask_logits, dim=1)
+                # Prepare the response for this frame
+                frame_response = {
+                    frame_idx: [
+                        self.parse_to_model(object_ids[idx], (masks[idx].cpu().numpy() > 0.0).astype(bool))
+                        for idx in range(len(object_ids))
+                    ]
+                }
+                # Yield each frame's response as a JSON-encoded string
+                if stream:
+                    yield PredictResponse(response=frame_response).model_dump_json() + '\n'
+                else:
+                    mask_response.update(frame_response)
             return mask_response
 
-    def parse_to_model(self, object_id, masks):
+            #     mask_response[frame_idx] = [
+            #         self.parse_to_model(object_ids[idx], (masks[idx].cpu().numpy() > 0.0).astype(bool)) for idx in
+            #         range(len(object_ids))]
+            #
+            #     if stream:
+            #         yield PredictResponse(response={frame_idx: [
+            #             self.parse_to_model(object_ids[idx], (masks[idx].cpu().numpy() > 0.0).astype(bool)) for idx in
+            #             range(len(object_ids))]})
+            #     else:
+            #         mask_response[frame_idx] = [
+            #             self.parse_to_model(object_ids[idx], (masks[idx].cpu().numpy() > 0.0).astype(bool)) for idx in
+            #             range(len(object_ids))]
+            # if not stream:
+            #     return PredictResponse(response=mask_response)
+
+    @staticmethod
+    def __group_box_point_by_frame_obj_id(box_or_point: List[BoxOrPoint], only_frame=False):
+        items_sorted = sorted(box_or_point, key=lambda x: x.frame)
+        if only_frame:
+            return groupby(items_sorted, key=lambda x: x.frame)
+        else:
+            grouped_items = {
+                frame: {
+                    object_id: list(bboxes)[0]  # we except only one box for each object in the frame
+                    for object_id, bboxes in groupby(boxes, key=lambda box: box.object_id)
+                }
+                for frame, boxes in groupby(items_sorted, key=lambda x: x.frame)
+            }
+            return grouped_items
+
+    @staticmethod
+    def parse_to_model(object_id, masks):
         if len(masks.shape) >= 3:
             mask_per_object = masks[object_id, :, :]
         else:
