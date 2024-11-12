@@ -8,7 +8,7 @@ from sam2.sam2_video_predictor import SAM2VideoPredictor
 from tqdm import tqdm
 
 from api.patches import DEVICE
-from api.utils import is_base64_string, base64_to_image_with_size, load_image_from_path, \
+from utils import is_base64_string, base64_to_image_with_size, load_image_from_path, \
     offload_video_as_images
 from models import BoxOrPoint, MaskResponse, PredictResponse
 
@@ -79,16 +79,15 @@ class SAM2:
                                   key=lambda item: item.object_id)
         object_ids = [bpl.object_id for bpl in points_per_frame]
         np_boxes = np.array(
-            [bpl.bbox for bpl in points_per_frame]) if self.__all_elements_are_not_null(points_per_frame,
-                                                                                        lambda
-                                                                                            x: x.bbox) else None
+            [bpl.bbox for bpl in points_per_frame]) \
+            if self.__all_elem_not_null(points_per_frame, lambda x: x.bbox) else None
         np_point = np.array(
-            [bpl.point for bpl in points_per_frame]) if self.__all_elements_are_not_null(points_per_frame,
-                                                                                         lambda
-                                                                                             x: x.point) else None
+            [bpl.point for bpl in points_per_frame]) \
+            if self.__all_elem_not_null(points_per_frame, lambda x: x.point) else None
         mask_logits, scores, logits = self.sam2_model.predict(box=np_boxes if np_boxes is not None else None,
                                                               point_labels=np.array([bpl.label for bpl in
-                                                                                     points_per_frame]) if np_point is None else None,
+                                                                                     points_per_frame])
+                                                              if np_point is None else None,
                                                               point_coords=np_point if np_point is not None else None,
                                                               return_logits=False,
                                                               multimask_output=False)
@@ -170,7 +169,7 @@ class SAM2:
             )
 
     @staticmethod
-    def __all_elements_are_not_null(arr, func):
+    def __all_elem_not_null(arr, func):
         return all([func(a) is not None for a in arr])
 
 
