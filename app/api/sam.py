@@ -114,27 +114,11 @@ class SAM2:
                         for idx in range(len(object_ids))
                     ]
                 }
-                # Yield each frame's response as a JSON-encoded string
                 if stream:
                     yield PredictResponse(response=frame_response).model_dump_json() + '\n'
                 else:
                     mask_response.update(frame_response)
             return mask_response
-
-            #     mask_response[frame_idx] = [
-            #         self.parse_to_model(object_ids[idx], (masks[idx].cpu().numpy() > 0.0).astype(bool)) for idx in
-            #         range(len(object_ids))]
-            #
-            #     if stream:
-            #         yield PredictResponse(response={frame_idx: [
-            #             self.parse_to_model(object_ids[idx], (masks[idx].cpu().numpy() > 0.0).astype(bool)) for idx in
-            #             range(len(object_ids))]})
-            #     else:
-            #         mask_response[frame_idx] = [
-            #             self.parse_to_model(object_ids[idx], (masks[idx].cpu().numpy() > 0.0).astype(bool)) for idx in
-            #             range(len(object_ids))]
-            # if not stream:
-            #     return PredictResponse(response=mask_response)
 
     @staticmethod
     def __group_box_point_by_frame_obj_id(box_or_point: List[BoxOrPoint], only_frame=False):
