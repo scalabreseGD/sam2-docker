@@ -125,8 +125,7 @@ class SAM2:
                     ]
                 }
                 if stream:
-                    # yield PredictResponse(response=frame_response).model_dump_json() + '\n'
-                    return PredictResponse(response=frame_response).model_dump_json() + '\n'
+                    yield PredictResponse(response=frame_response).model_dump_json() + '\n'
                 else:
                     mask_response.update(frame_response)
             return mask_response
