@@ -2,7 +2,7 @@ import os
 from typing import List
 
 import uvicorn
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks
 from fastapi.responses import ORJSONResponse
 from starlette.responses import Response, StreamingResponse
 
@@ -14,7 +14,7 @@ app = FastAPI(lifespan=lifespan)
 app.add_middleware(LimitRequestSizeMiddleware)
 
 
-def __return_response(request: PredictArgs, stream=False):
+def __return_response(request: PredictArgs, stream=False, background_tasks: BackgroundTasks = None):
     if request.video is not None and request.images is not None:
         Response(
             "Cannot use both images and video in the same request", status_code=400
@@ -28,6 +28,7 @@ def __return_response(request: PredictArgs, stream=False):
                                 end_second=request.end_second,
                                 stream=stream)
     if stream:
+        background_tasks.add_task(model.unload_model_after_stream)
         return StreamingResponse(response, media_type="application/json")
     else:
         return response
@@ -39,8 +40,8 @@ async def predict(request: PredictArgs):
 
 
 @app.post("/v1/predict_async")
-async def predict_async(request: PredictArgs):
-    return __return_response(request, stream=True)
+async def predict_async(request: PredictArgs, background_tasks: BackgroundTasks):
+    return __return_response(request, stream=True, background_tasks=background_tasks)
 
 
 @app.put("/v1/asset")

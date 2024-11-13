@@ -12,8 +12,8 @@ class BoxOrPoint(BaseModel):
                                                               description="The bounding box in x1,y1,x2,y2 format")
     point: Optional[Tuple[float, float]] = Field((0.0, 0.0),
                                                  description="The anchor point in x,y format")
-    label: Literal[0, 1] = Field(...,
-                                 description="label indicating if the point is to be excluded or included in 0/1 format")
+    label: Optional[Literal[0, 1]] = Field(...,
+                                           description="label indicating if the point is to be excluded or included in 0/1 format")
 
 
 class PredictArgs(BaseModel):

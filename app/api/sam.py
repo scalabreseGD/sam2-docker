@@ -41,6 +41,15 @@ class SAM2:
                                                               offload_state_to_cpu=True
                                                               )
 
+    def unload_model_after_stream(self):
+        self.__unload_model()
+
+    def __unload_model(self):
+        if self.inference_state:
+            self.sam2_model.reset_state(self.inference_state)
+            self.inference_state = None
+        self.sam2_model = None
+
     def call_model(self, images, video, box_or_point, scale_factor,
                    start_second, end_second, stream=False):
         if video is not None:
@@ -55,6 +64,8 @@ class SAM2:
             images_pillow = [load_image_from_path(image_path)[0] for image_path in images]
             self.__init_model(img for img in images_pillow)
             result = self.__predict_photos(images_pillow, box_or_point, stream)
+        if not stream:
+            self.__unload_model()
         return result
 
     def __predict_photos(self, images, box_or_point: List[BoxOrPoint], stream=False):
@@ -87,12 +98,12 @@ class SAM2:
         mask_logits, scores, logits = self.sam2_model.predict(box=np_boxes if np_boxes is not None else None,
                                                               point_labels=np.array([bpl.label for bpl in
                                                                                      points_per_frame])
-                                                              if np_point is None else None,
+                                                              if np_point is not None else None,
                                                               point_coords=np_point if np_point is not None else None,
                                                               return_logits=False,
                                                               multimask_output=False)
         masks = (mask_logits > 0.0).astype(bool)
-        masks = masks.squeeze(axis=1)
+        masks = masks.squeeze(axis=0)
         return [self.parse_to_model(object_id, masks) for object_id in object_ids]
 
     def __predict_video(self, box_or_point: List[BoxOrPoint], stream=False):
@@ -114,7 +125,8 @@ class SAM2:
                     ]
                 }
                 if stream:
-                    yield PredictResponse(response=frame_response).model_dump_json() + '\n'
+                    # yield PredictResponse(response=frame_response).model_dump_json() + '\n'
+                    return PredictResponse(response=frame_response).model_dump_json() + '\n'
                 else:
                     mask_response.update(frame_response)
             return mask_response
@@ -123,7 +135,7 @@ class SAM2:
     def __group_box_point_by_frame_obj_id(box_or_point: List[BoxOrPoint], only_frame=False):
         items_sorted = sorted(box_or_point, key=lambda x: x.frame)
         if only_frame:
-            return groupby(items_sorted, key=lambda x: x.frame)
+            return {frame: list(boxes) for frame, boxes in groupby(items_sorted, key=lambda x: x.frame)}
         else:
             grouped_items = {
                 frame: {
@@ -155,16 +167,16 @@ class SAM2:
                 inference_state=self.inference_state,
                 frame_idx=frame_idx,
                 obj_id=object_id,
-                box=np_box
+                box=np.array([np_box])
             )
         else:
             np_point = np.array(boxes.point)
-            np_label = np.array(boxes.label)
+            np_label = np.array(boxes.label).reshape((1,))
             _, obj_id_res, video_res_masks = self.sam2_model.add_new_points_or_box(
                 inference_state=self.inference_state,
                 frame_idx=frame_idx,
                 obj_id=object_id,
-                points=np_point,
+                points=np.array([np_point]),
                 labels=np_label
             )
 
