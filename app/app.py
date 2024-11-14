@@ -29,7 +29,7 @@ def __return_response(request: PredictArgs, stream=False, background_tasks: Back
                                 stream=stream)
     if stream:
         background_tasks.add_task(model.unload_model_after_stream)
-        return StreamingResponse(response.model_dump_json() + '\n', media_type="application/json")
+        return StreamingResponse((resp.model_dump_json() + '\n' for resp in response), media_type="application/json")
     else:
         response_dict = {}
         for resp in response:
