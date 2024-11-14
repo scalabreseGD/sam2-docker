@@ -89,13 +89,10 @@ def offload_video_as_images(path: str,
     return temp_images_path
 
 
-def perform_in_batch(images, function: Callable[[List, Dict], Any], is_stream=False, batch_size=20, **kwargs):
-    if is_stream:
-        for image in tqdm(images, desc='Performing inference'):
-            yield function([image], **kwargs)
-    else:
-        results = []
-        for frame_index in tqdm(range(0, len(images), min(len(images), batch_size)), desc='Performing inference'):
-            batch = function(images[frame_index:frame_index + batch_size], **kwargs)
-            results.extend(batch)
-        return results
+def tqdm_log(tqdm_iter, log_level='INFO', **tqdm_kwargs):
+    import logging
+    from logging import getLevelName
+    progress_bar = tqdm(tqdm_iter, **tqdm_kwargs)
+    for elem in progress_bar:
+        logging.log(level=getLevelName(log_level), msg=progress_bar)
+        yield elem

@@ -10,7 +10,7 @@ from tqdm import tqdm
 
 from api.patches import DEVICE
 from utils import is_base64_string, base64_to_image_with_size, load_image_from_path, \
-    offload_video_as_images
+    offload_video_as_images, tqdm_log
 from models import BoxOrPoint, MaskResponse, PredictResponse
 
 
@@ -79,13 +79,13 @@ class SAM2:
         grouped_items = self.__group_box_point_by_frame_obj_id(box_or_point, only_frame=True)
         with torch.inference_mode(), torch.autocast(device_type=self.device.type, dtype=torch.bfloat16):
             if stream:
-                for frame_idx, boxes in tqdm(grouped_items.items(), desc="Predicting photos"):
+                for frame_idx, boxes in tqdm_log(grouped_items.items(), log_level='INFO', desc="Predicting photos"):
                     mask_responses = self.__predict_mask_responses(image=images[frame_idx],
                                                                    box_or_point_by_frame=boxes)
                     yield PredictResponse(response={frame_idx: mask_responses}).model_dump_json() + "\n"
             else:
                 mask_response = {}
-                for frame_idx, boxes in tqdm(grouped_items.items(), desc="Predicting photos"):
+                for frame_idx, boxes in tqdm_log(grouped_items.items(), log_level='INFO', desc="Predicting photos"):
                     mask_responses = self.__predict_mask_responses(image=images[frame_idx],
                                                                    box_or_point_by_frame=boxes)
                     mask_response[frame_idx] = mask_responses
@@ -121,8 +121,8 @@ class SAM2:
                     self.__add_points_or_boxes(frame_idx, object_id, boxes)
 
             mask_response = {}
-            for frame_idx, object_ids, mask_logits in self.sam2_model.propagate_in_video(
-                    inference_state=self.inference_state):
+            for frame_idx, object_ids, mask_logits in tqdm_log(self.sam2_model.propagate_in_video(
+                    inference_state=self.inference_state), log_level='INFO', desc='Propagate in video'):
                 masks = torch.squeeze(mask_logits, dim=1)
                 # Prepare the response for this frame
                 frame_response = {
