@@ -1,3 +1,4 @@
+import gc
 from itertools import groupby
 from typing import Union, List
 
@@ -48,7 +49,13 @@ class SAM2:
         if self.inference_state:
             self.sam2_model.reset_state(self.inference_state)
             self.inference_state = None
+
+        del self.sam2_model
         self.sam2_model = None
+        if DEVICE.type == 'cuda':
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+        gc.collect()
 
     def call_model(self, images, video, box_or_point, scale_factor,
                    start_second, end_second, stream=False):
