@@ -62,34 +62,24 @@ class SAM2:
         if video is not None:
             images_path = offload_video_as_images(video, scale_factor, start_second, end_second)
             self.__init_model(images_path=images_path)
-            result = self.__predict_video(box_or_point, stream)
+            result = self.__predict_video(box_or_point)
         elif images is not None and is_base64_string(images[0]):
             images_pillow = [base64_to_image_with_size(image)[0] for image in images]
             self.__init_model(img for img in images_pillow)
-            result = self.__predict_photos(images_pillow, box_or_point, stream)
+            result = self.__predict_photos(images_pillow, box_or_point)
         else:
             images_pillow = [load_image_from_path(image_path)[0] for image_path in images]
             self.__init_model(img for img in images_pillow)
-            result = self.__predict_photos(images_pillow, box_or_point, stream)
-        if not stream:
-            self.__unload_model()
+            result = self.__predict_photos(images_pillow, box_or_point)
         return result
 
-    def __predict_photos(self, images, box_or_point: List[BoxOrPoint], stream=False):
+    def __predict_photos(self, images, box_or_point: List[BoxOrPoint]):
         grouped_items = self.__group_box_point_by_frame_obj_id(box_or_point, only_frame=True)
         with torch.inference_mode(), torch.autocast(device_type=self.device.type, dtype=torch.bfloat16):
-            if stream:
-                for frame_idx, boxes in tqdm_log(grouped_items.items(), log_level='INFO', desc="Predicting photos"):
-                    mask_responses = self.__predict_mask_responses(image=images[frame_idx],
-                                                                   box_or_point_by_frame=boxes)
-                    yield PredictResponse(response={frame_idx: mask_responses}).model_dump_json() + "\n"
-            else:
-                mask_response = {}
-                for frame_idx, boxes in tqdm_log(grouped_items.items(), log_level='INFO', desc="Predicting photos"):
-                    mask_responses = self.__predict_mask_responses(image=images[frame_idx],
-                                                                   box_or_point_by_frame=boxes)
-                    mask_response[frame_idx] = mask_responses
-                return PredictResponse(response=mask_response)
+            for frame_idx, boxes in tqdm_log(grouped_items.items(), log_level='INFO', desc="Predicting photos"):
+                mask_responses = self.__predict_mask_responses(image=images[frame_idx],
+                                                               box_or_point_by_frame=boxes)
+                yield PredictResponse(response={frame_idx: mask_responses}).model_dump_json() + "\n"
 
     def __predict_mask_responses(self, image, box_or_point_by_frame):
         self.sam2_model.set_image(image)
@@ -113,14 +103,13 @@ class SAM2:
         masks = masks.squeeze(axis=0)
         return [self.parse_to_model(object_id, masks) for object_id in object_ids]
 
-    def __predict_video(self, box_or_point: List[BoxOrPoint], stream=False):
+    def __predict_video(self, box_or_point: List[BoxOrPoint]):
         grouped_items = self.__group_box_point_by_frame_obj_id(box_or_point)
         with torch.inference_mode(), torch.autocast(device_type=self.device.type, dtype=torch.bfloat16):
             for frame_idx, boxes_by_obj_id in grouped_items.items():
                 for object_id, boxes in boxes_by_obj_id.items():
                     self.__add_points_or_boxes(frame_idx, object_id, boxes)
 
-            mask_response = {}
             for frame_idx, object_ids, mask_logits in tqdm_log(self.sam2_model.propagate_in_video(
                     inference_state=self.inference_state), log_level='INFO', desc='Propagate in video'):
                 masks = torch.squeeze(mask_logits, dim=1)
@@ -131,11 +120,7 @@ class SAM2:
                         for idx in range(len(object_ids))
                     ]
                 }
-                if stream:
-                    yield PredictResponse(response=frame_response).model_dump_json() + '\n'
-                else:
-                    mask_response.update(frame_response)
-            return mask_response
+                yield PredictResponse(response=frame_response)
 
     @staticmethod
     def __group_box_point_by_frame_obj_id(box_or_point: List[BoxOrPoint], only_frame=False):

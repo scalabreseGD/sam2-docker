@@ -29,9 +29,13 @@ def __return_response(request: PredictArgs, stream=False, background_tasks: Back
                                 stream=stream)
     if stream:
         background_tasks.add_task(model.unload_model_after_stream)
-        return StreamingResponse(response, media_type="application/json")
+        return StreamingResponse(response.model_dump_json() + '\n', media_type="application/json")
     else:
-        return response
+        response_dict = {}
+        for resp in response:
+            response_dict.update(resp.response)
+        model.unload_model_after_stream()
+        return PredictResponse(response=response_dict)
 
 
 @app.post("/v1/predict", response_model=PredictResponse, response_class=ORJSONResponse)
