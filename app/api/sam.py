@@ -143,8 +143,8 @@ class SAM2:
             mask_per_object = masks[object_id, :, :]
         else:
             mask_per_object = masks
-        true_values = [(i, j) for i in range(mask_per_object.shape[1]) for j in
-                       range(mask_per_object.shape[0]) if mask_per_object[i, j]]
+        true_values = [(j, i) for i in range(mask_per_object.shape[0]) for j in
+                       range(mask_per_object.shape[1]) if mask_per_object[i, j]]
         return MaskResponse(
             image_shape=mask_per_object.shape[::-1],
             true_values=true_values,
