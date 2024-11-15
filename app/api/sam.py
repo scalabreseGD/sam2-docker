@@ -146,7 +146,7 @@ class SAM2:
         true_values = [(i, j) for i in range(mask_per_object.shape[0]) for j in
                        range(mask_per_object.shape[1]) if mask_per_object[i, j]]
         return MaskResponse(
-            image_shape=mask_per_object,
+            image_shape=mask_per_object.shape,
             true_values=true_values,
             object_id=object_id
         )
