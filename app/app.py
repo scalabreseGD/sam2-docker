@@ -25,8 +25,7 @@ def __return_response(request: PredictArgs, stream=False, background_tasks: Back
                                 box_or_point=request.boxOrPoint,
                                 scale_factor=request.scale_factor,
                                 start_second=request.start_second,
-                                end_second=request.end_second,
-                                stream=stream)
+                                end_second=request.end_second)
     if stream:
         background_tasks.add_task(model.unload_model_after_stream)
         return StreamingResponse((resp.model_dump_json() + '\n' for resp in response), media_type="application/json")
