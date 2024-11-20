@@ -49,3 +49,6 @@ docker tag $IMAGE_NAME:$new_version $REGISTRY/$IMAGE_NAME:$new_version
 
 echo "docker push $REGISTRY/$IMAGE_NAME:$new_version"
 docker push $REGISTRY/$IMAGE_NAME:$new_version
+
+docker tag $IMAGE_NAME:$new_version $REGISTRY/$IMAGE_NAME:latest
+docker push $REGISTRY/$IMAGE_NAME:latest
