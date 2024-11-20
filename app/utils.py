@@ -33,7 +33,7 @@ def base64_to_image_with_size(base64_string, scale_factor: Optional[float] = Non
         Image, Union[Tuple[int, int], np.ndarray]):
     image_data = base64.b64decode(base64_string)  # Decode the base64 string
     image = Image.open(io.BytesIO(image_data))  # Convert to PIL.Imag
-    scale_image(image, scale_factor)
+    image = scale_image(image, scale_factor)
     size = image.size
     return image, size
 
@@ -41,7 +41,7 @@ def base64_to_image_with_size(base64_string, scale_factor: Optional[float] = Non
 def load_image_from_path(path: str, scale_factor: Optional[float] = None) -> Image:
     with open(path, 'rb') as f:
         image = Image.open(f)
-        scale_image(image, scale_factor)
+        image = scale_image(image, scale_factor)
         image.load()
     size = image.size
     return image, size

@@ -64,11 +64,11 @@ class SAM2:
             self.__init_model(images_path=images_path)
             result = self.__predict_video(box_or_point)
         elif images is not None and is_base64_string(images[0]):
-            images_pillow = [base64_to_image_with_size(image)[0] for image in images]
+            images_pillow = [base64_to_image_with_size(image, scale_factor)[0] for image in images]
             self.__init_model(img for img in images_pillow)
             result = self.__predict_photos(images_pillow, box_or_point)
         else:
-            images_pillow = [load_image_from_path(image_path)[0] for image_path in images]
+            images_pillow = [load_image_from_path(image_path, scale_factor)[0] for image_path in images]
             self.__init_model(img for img in images_pillow)
             result = self.__predict_photos(images_pillow, box_or_point)
         return result
